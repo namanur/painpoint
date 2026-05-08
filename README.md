@@ -43,3 +43,6 @@ painpoint "Plan a migration of my legacy CSV data to SQLite"
 
 ---
 *Built for speed. Validated for integrity.*
+
+## Review Trigger
+This branch is created for CodeRabbit review.
