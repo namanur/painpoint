@@ -58,6 +58,9 @@ def _basic_extraction(text: str) -> list:
     """
     Simple fallback extraction when LLM is unavailable.
     Parses text into basic nodes based on common patterns.
+
+    ANTI-SLOP: This is intentionally simple to avoid blocking the UI thread.
+    Heavy regex parsing would require asyncio.to_thread() wrapping.
     """
     # Split by common delimiters: numbered lists, newlines, "then", "next", etc.
     sentences = re.split(r"\n+|(?=\d+\.)|(?<!\w)\.\s+(?=\w)|(?<=\w)\s+(?=[A-Z])", text)
@@ -109,7 +112,8 @@ async def compile_messy_dump(raw_text: str) -> str:
             console.print(f"[yellow]⚠ LLM compilation failed: {e}[/yellow]")
             console.print("[dim]Falling back to basic extraction...[/dim]")
             # Fallback: simple extraction from text
-            fallback_nodes = _basic_extraction(raw_text)
+            # ANTI-SLOP: Wrap sync fallback in thread to avoid blocking UI
+            fallback_nodes = await asyncio.to_thread(_basic_extraction, raw_text)
             contracts = [PromptContract(**node) for node in fallback_nodes]
 
     if _shutdown_requested:

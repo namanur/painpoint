@@ -19,11 +19,11 @@ dev: ## One-command setup (first time or after a pull)
 # ── Daily use ─────────────────────────────────────────────────────────────────
 
 .PHONY: cli
-cli: _venv_check ## Open the brain-dump intake terminal
+cli: _venv_check ## Open the brain-dump intake terminal (SQLite only)
 	$(PYTHON) -m local_cli
 
 .PHONY: run
-run: _venv_check ## Start the Phase 3 execution engine
+run: _venv_check ## Start the Phase 3 execution engine (uses PAINPOINT_DATABASE_URL)
 	$(PYTHON) -m src.main run
 
 .PHONY: api

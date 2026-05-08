@@ -21,3 +21,8 @@ sessions/
 .vscode/
 .idea/
 .zed/
+# Agent
+.gemini
+.pi
+Agent.md
+gemini.md

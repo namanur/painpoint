@@ -36,10 +36,27 @@ painpoint "Plan a migration of my legacy CSV data to SQLite"
 ```
 
 ## 🏗 Architecture
-* **Multi-DB Core:** Supports SQLite (default) and PostgreSQL.
+* **Explicit DAO Layer:** Separate Postgres/SQLite implementations - no regex SQL mutation
+* **PostgreSQL Optimized:** Uses `FOR UPDATE SKIP LOCKED` for concurrent worker safety
+* **SQLite Supported:** Uses atomic `UPDATE...RETURNING` (3.35+) with WAL mode for concurrent reads
 * **Prompt Contracts:** Strict Pydantic validation for all agent instructions.
 * **Tool Binding:** FastMCP for secure, extensible tool execution.
 * **Headless Engine:** Single-process `asyncio` orchestration loop.
+
+## Database Configuration
+
+**Default: SQLite** (for development/lightweight use)
+```bash
+export PAINPOINT_DATABASE_URL="sqlite:///painpoint.db"
+```
+
+**For Production/Concurrent Workloads: PostgreSQL**
+```bash
+export PAINPOINT_DATABASE_URL="postgresql://user:pass@localhost:5432/painpoint"
+```
+
+Note: If using the orchestration engine (`make run`), PostgreSQL is recommended
+for true concurrent safety. SQLite works for single-worker deployments.
 
 ---
 *Built for speed. Validated for integrity.*
