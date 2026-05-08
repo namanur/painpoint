@@ -1,0 +1,18 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Environment/secrets
+.env
+src/config.py  # If this contains DB credentials/API keys; use a config.example.py instead!
+
+# Build/dist
+dist/
+build/
+*.egg-info/
+
+# IDE files
+.vscode/
+.idea/
