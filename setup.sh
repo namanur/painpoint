@@ -24,6 +24,20 @@ echo "  │  One command. Done.                  │"
 echo "  └──────────────────────────────────────┘"
 echo -e "${NC}"
 
+# ── 0. Self-Cloning (if piped from curl) ──────────────────────────────────────
+INSTALL_DIR="$HOME/projects/painpoint"
+
+if [ ! -d "$INSTALL_DIR/.git" ]; then
+    step "[0/5] Downloading PainPoint"
+    mkdir -p "$HOME/projects"
+    git clone https://github.com/namanur/painpoint.git "$INSTALL_DIR"
+    cd "$INSTALL_DIR"
+    ok "Cloned to $INSTALL_DIR"
+else
+    # Already in the dir or it exists, just ensure we are there
+    cd "$INSTALL_DIR"
+fi
+
 # ── 1. Python version ────────────────────────────────────────────────────────
 step "[1/5] Checking Python"
 
@@ -75,11 +89,23 @@ else
 fi
 
 # ── 5. Database Setup (SQLite) ───────────────────────────────────────────────
-step "[5/5] Database Setup (SQLite)"
+step "[5/5] Database & Global CLI Setup"
 
 # Run schema initialization via src.main
 python -m src.main setup && ok "SQLite database initialized (painpoint.db)" \
     || fail "Database initialization failed"
+
+# Install global wrapper
+mkdir -p "$HOME/.local/bin"
+cat << EOF > "$HOME/.local/bin/painpoint"
+#!/usr/bin/env bash
+# PainPoint Global Wrapper
+cd "$INSTALL_DIR" || exit 1
+source .venv/bin/activate
+python -m local_cli "\$@"
+EOF
+chmod +x "$HOME/.local/bin/painpoint"
+ok "Global command 'painpoint' installed in ~/.local/bin"
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 echo ""
