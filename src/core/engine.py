@@ -44,6 +44,13 @@ async def orchestration_loop(
         while True:
             # Clean up completed tasks
             done_tasks = {task for task in running_tasks if task.done()}
+            for task in done_tasks:
+                try:
+                    exc = task.exception()
+                    if exc:
+                        logger.error(f"Task {task.get_name()}: failed with: {exc}")
+                except asyncio.InvalidStateError:
+                    pass  # Task completed without exception
             running_tasks.difference_update(done_tasks)
             
             # If at capacity, wait a bit and continue

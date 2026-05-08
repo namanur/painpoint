@@ -19,7 +19,7 @@ from asyncpg import Pool
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["nodes"])
+router = APIRouter(prefix="/api", tags=["workflows"])
 
 
 class NodeUpdateRequest(BaseModel):
@@ -38,6 +38,22 @@ class NodeUpdateResponse(BaseModel):
     message: str
     node_id: str
     updated_contract: Optional[Dict[str, Any]] = None
+
+
+@router.post("/workflows/", response_model=Dict[str, Any])
+async def create_workflow(request: Dict[str, str]) -> Dict[str, Any]:
+    """Create a new workflow."""
+    pool = await get_pool()
+    
+    async with pool.acquire() as conn:
+        record = await conn.fetchrow(
+            """INSERT INTO workflows (name, status) 
+               VALUES ($1, $2) 
+               RETURNING id, name, status""",
+            request.get("name", "New Workflow"),
+            "DRAFT",
+        )
+        return dict(record)
 
 
 @router.patch("/nodes/{node_id}", response_model=NodeUpdateResponse)

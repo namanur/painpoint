@@ -9,6 +9,7 @@ Anti-Slop: The LLM is completely blind to this file. Code enforces the law.
 
 from typing import List, Set
 from src.models.prompt_contract import PromptContract
+from src.core.tools import get_dangerous_tools, get_approval_tools
 
 
 class BusinessRuleViolation(Exception):
@@ -16,22 +17,14 @@ class BusinessRuleViolation(Exception):
     pass
 
 
-# Dangerous tools that require human approval
-DANGEROUS_TOOLS: Set[str] = {
-    "mcp_database_write",
-    "mcp_database_drop",
-    "mcp_stripe_charge",
-    "mcp_email_send",
-    "mcp_delete_user",
-}
+def _get_dangerous_tools() -> Set[str]:
+    """Lazy-loaded set of dangerous tools from central registry."""
+    return get_dangerous_tools()
 
-# Tools that always require human approval (Level 4 triggers)
-HUMAN_APPROVAL_TRIGGERS: Set[str] = {
-    "mcp_stripe_charge",
-    "mcp_database_drop",
-    "mcp_email_send",
-    "mcp_delete_user",
-}
+
+def _get_human_approval_triggers() -> Set[str]:
+    """Lazy-loaded set of approval-trigger tools from central registry."""
+    return get_approval_tools()
 
 
 def enforce_level_3(
@@ -53,8 +46,9 @@ def enforce_level_3(
         BusinessRuleViolation: If any business rule is violated
     """
     # Rule 1: High-risk tools require specific isolation
+    dangerous = _get_dangerous_tools()
     requested_danger: Set[str] = (
-        set(contract.allowed_tools).intersection(DANGEROUS_TOOLS)
+        set(contract.allowed_tools).intersection(dangerous)
     )
     
     if requested_danger and "human_approval" not in contract.allowed_tools:
@@ -89,7 +83,8 @@ def check_dangerous_tools(contract: PromptContract) -> Set[str]:
     Returns:
         Set of dangerous tools in the contract's allowed_tools
     """
-    return set(contract.allowed_tools).intersection(DANGEROUS_TOOLS)
+    dangerous = _get_dangerous_tools()
+    return set(contract.allowed_tools).intersection(dangerous)
 
 
 def requires_human_approval_tool(contract: PromptContract) -> bool:
@@ -98,6 +93,7 @@ def requires_human_approval_tool(contract: PromptContract) -> bool:
     
     This is separate from the Level 3 enforcement - it's a flag check.
     """
+    triggers = _get_human_approval_triggers()
     return bool(
-        set(contract.allowed_tools).intersection(HUMAN_APPROVAL_TRIGGERS)
+        set(contract.allowed_tools).intersection(triggers)
     )

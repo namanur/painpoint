@@ -9,7 +9,8 @@ import pytest
 import json
 from unittest.mock import AsyncMock, patch, MagicMock
 
-from src.compiler.extraction import compile_workflow, get_compiler_prompt, AVAILABLE_TOOLS
+from src.compiler.extraction import compile_workflow, get_compiler_prompt
+from src.core.tools import get_all_tool_names
 from src.api.visualizer import generate_mermaid_graph, STATUS_STYLES
 from src.models.prompt_contract import PromptContract
 
@@ -35,7 +36,8 @@ class TestCompilerPrompt:
     def test_prompt_contains_available_tools(self):
         """Test that prompt lists available tools."""
         prompt = get_compiler_prompt()
-        for tool in AVAILABLE_TOOLS[:3]:  # Check first few
+        available = get_all_tool_names()
+        for tool in available[:3]:  # Check first few
             assert tool in prompt
 
 

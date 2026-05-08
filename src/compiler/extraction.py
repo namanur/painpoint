@@ -10,21 +10,14 @@ import logging
 from typing import List, Dict, Any, Optional
 from src.models.prompt_contract import PromptContract
 from src.core.llm_client import get_llm_client
+from src.core.tools import get_all_tool_names
 
 logger = logging.getLogger(__name__)
 
-# Available tools that can be used in contracts
-AVAILABLE_TOOLS = [
-    "mcp_database_read",
-    "mcp_database_write",
-    "mcp_database_drop",
-    "mcp_stripe_charge",
-    "mcp_email_send",
-    "mcp_erpnext_read",
-    "mcp_http_get",
-    "mcp_file_read",
-    "human_approval",
-]
+
+def _get_available_tools() -> list:
+    """Lazy-loaded list of available tools from central registry."""
+    return get_all_tool_names()
 
 
 def get_compiler_prompt() -> str:
@@ -43,7 +36,7 @@ You must follow the Tri-Phase Protocol internally before outputting:
 2. Logic Branching: Where are the IF/THEN decisions?
 3. Resource Mapping: Which pre-approved tools are needed?
 
-AVAILABLE TOOLS: {AVAILABLE_TOOLS}
+AVAILABLE TOOLS: {_get_available_tools()}
 
 You must output a JSON object containing a 'nodes' array. Every item in the array MUST strictly adhere to this JSON Schema:
 {schema}
@@ -169,5 +162,4 @@ __all__ = [
     "compile_workflow",
     "refine_workflow",
     "get_compiler_prompt",
-    "AVAILABLE_TOOLS",
 ]

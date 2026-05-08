@@ -11,6 +11,7 @@ calls in asyncio.to_thread().
 import asyncio
 import logging
 from typing import Any, Callable, Dict, Optional
+from dataclasses import dataclass
 from fastmcp import FastMCP
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,39 @@ mcp = FastMCP("PainPointOrchestrator")
 
 # Tool registry for looking up tools by name
 _tool_registry: Dict[str, Callable] = {}
+
+
+# ============================================================================
+# Central Tool Metadata Registry (single source of truth)
+# ============================================================================
+
+@dataclass
+class ToolMeta:
+    """Metadata for a tool registered in the system."""
+    name: str
+    dangerous: bool = False
+    requires_approval: bool = False
+
+
+TOOL_METADATA: Dict[str, ToolMeta] = {
+    "mcp_erpnext_read": ToolMeta(name="mcp_erpnext_read", dangerous=False, requires_approval=False),
+    "mcp_http_get": ToolMeta(name="mcp_http_get", dangerous=False, requires_approval=False),
+    "mcp_file_read": ToolMeta(name="mcp_file_read", dangerous=False, requires_approval=False),
+    "mcp_database_write": ToolMeta(name="mcp_database_write", dangerous=True, requires_approval=True),
+    "mcp_database_drop": ToolMeta(name="mcp_database_drop", dangerous=True, requires_approval=True),
+    "mcp_database_read": ToolMeta(name="mcp_database_read", dangerous=False, requires_approval=False),
+    "mcp_stripe_charge": ToolMeta(name="mcp_stripe_charge", dangerous=True, requires_approval=True),
+    "mcp_email_send": ToolMeta(name="mcp_email_send", dangerous=True, requires_approval=True),
+    "mcp_delete_user": ToolMeta(name="mcp_delete_user", dangerous=True, requires_approval=True),
+    "mcp_transfer_funds": ToolMeta(name="mcp_transfer_funds", dangerous=True, requires_approval=True),
+    "mcp_modify_permissions": ToolMeta(name="mcp_modify_permissions", dangerous=True, requires_approval=True),
+    "human_approval": ToolMeta(name="human_approval", dangerous=False, requires_approval=False),
+}
+
+
+_DANGEROUS_TOOLS: set[str] = {m.name for m in TOOL_METADATA.values() if m.dangerous}
+_APPROVAL_TOOLS: set[str] = {m.name for m in TOOL_METADATA.values() if m.requires_approval}
+_ALL_TOOL_NAMES: list[str] = sorted(TOOL_METADATA.keys())
 
 
 def get_tool_registry() -> Dict[str, Callable]:
@@ -233,6 +267,21 @@ def _initialize_registry():
 _initialize_registry()
 
 
+def get_dangerous_tools() -> set[str]:
+    """Get the set of tools flagged as dangerous."""
+    return _DANGEROUS_TOOLS
+
+
+def get_approval_tools() -> set[str]:
+    """Get the set of tools that require human approval."""
+    return _APPROVAL_TOOLS
+
+
+def get_all_tool_names() -> list[str]:
+    """Get all registered tool names."""
+    return _ALL_TOOL_NAMES
+
+
 async def execute_tool(tool_name: str, **kwargs) -> Any:
     """
     Execute a tool by name with the given arguments.
@@ -261,11 +310,16 @@ def get_mcp_server() -> FastMCP:
     return mcp
 
 
-# Export the MCP server for external use (e.g., SSE transport)
+# Export the MCP server and tool metadata for external use (e.g., SSE transport)
 __all__ = [
     "mcp",
+    "ToolMeta",
+    "TOOL_METADATA",
     "get_tool_registry",
     "execute_tool",
     "register_tool",
     "get_mcp_server",
+    "get_dangerous_tools",
+    "get_approval_tools",
+    "get_all_tool_names",
 ]

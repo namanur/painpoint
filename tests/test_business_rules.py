@@ -9,7 +9,6 @@ from src.validators.business_rules import (
     enforce_level_3,
     check_dangerous_tools,
     requires_human_approval_tool,
-    DANGEROUS_TOOLS,
 )
 from src.models.prompt_contract import PromptContract
 

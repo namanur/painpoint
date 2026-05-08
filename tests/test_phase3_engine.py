@@ -138,7 +138,7 @@ class TestExecuteNode:
                 )
         
         # Verify pool was used
-        assert mock_pool.acquire_called or True  # Pool was used
+        assert mock_pool._conn.execute.called, "Expected pool connection to be used for state updates"
 
 
 # ============================================================================

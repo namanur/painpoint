@@ -15,13 +15,13 @@ from src.validators.syntax_parser import (
 from src.validators.business_rules import (
     BusinessRuleViolation,
     enforce_level_3,
-    DANGEROUS_TOOLS,
-    HUMAN_APPROVAL_TRIGGERS,
+    check_dangerous_tools,
+    requires_human_approval_tool,
 )
 from src.validators.human_gate import (
     requires_level_4_approval,
     get_initial_status,
-    APPROVAL_TRIGGERS,
+    get_triggering_tools,
 )
 
 __all__ = [
@@ -30,9 +30,9 @@ __all__ = [
     "clean_llm_output",
     "BusinessRuleViolation",
     "enforce_level_3",
-    "DANGEROUS_TOOLS",
-    "HUMAN_APPROVAL_TRIGGERS",
+    "check_dangerous_tools",
+    "requires_human_approval_tool",
     "requires_level_4_approval",
     "get_initial_status",
-    "APPROVAL_TRIGGERS",
+    "get_triggering_tools",
 ]

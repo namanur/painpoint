@@ -8,8 +8,8 @@ from src.validators.human_gate import (
     requires_level_4_approval,
     get_initial_status,
     get_triggering_tools,
-    APPROVAL_TRIGGERS,
 )
+from src.core.tools import get_approval_tools
 from src.models.prompt_contract import PromptContract
 
 
@@ -108,12 +108,14 @@ class TestGetTriggeringTools:
 
 
 class TestApprovalTriggersConstant:
-    """Test the APPROVAL_TRIGGERS constant."""
+    """Test the approval triggers from central registry."""
     
     def test_contains_expected_tools(self):
-        assert "mcp_stripe_charge" in APPROVAL_TRIGGERS
-        assert "mcp_database_drop" in APPROVAL_TRIGGERS
-        assert "mcp_email_send" in APPROVAL_TRIGGERS
+        triggers = get_approval_tools()
+        assert "mcp_stripe_charge" in triggers
+        assert "mcp_database_drop" in triggers
+        assert "mcp_email_send" in triggers
     
-    def test_is_frozenset_or_set(self):
-        assert isinstance(APPROVAL_TRIGGERS, set)
+    def test_is_set(self):
+        triggers = get_approval_tools()
+        assert isinstance(triggers, set)

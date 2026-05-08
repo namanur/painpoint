@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     workflow_id UUID REFERENCES workflows(id) ON DELETE CASCADE,
     type VARCHAR(50) NOT NULL,
     prompt_contract JSONB NOT NULL,
+    output JSONB,
     status VARCHAR(50) DEFAULT 'PENDING',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

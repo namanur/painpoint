@@ -12,16 +12,12 @@ instead of PENDING.
 
 from typing import Set
 from src.models.prompt_contract import PromptContract
+from src.core.tools import get_approval_tools
 
-# Tools that trigger Level 4 human approval
-APPROVAL_TRIGGERS: Set[str] = {
-    "mcp_stripe_charge",
-    "mcp_database_drop",
-    "mcp_email_send",
-    "mcp_delete_user",
-    "mcp_transfer_funds",
-    "mcp_modify_permissions",
-}
+
+def _get_approval_triggers() -> Set[str]:
+    """Lazy-loaded set of approval-trigger tools from central registry."""
+    return get_approval_tools()
 
 
 def requires_level_4_approval(contract: PromptContract) -> bool:
@@ -31,8 +27,9 @@ def requires_level_4_approval(contract: PromptContract) -> bool:
     Returns:
         True if any tool in allowed_tools matches approval triggers
     """
+    triggers = _get_approval_triggers()
     return any(
-        tool in APPROVAL_TRIGGERS 
+        tool in triggers 
         for tool in contract.allowed_tools
     )
 
@@ -44,7 +41,8 @@ def get_triggering_tools(contract: PromptContract) -> Set[str]:
     Returns:
         Set of tools that match approval triggers
     """
-    return set(contract.allowed_tools).intersection(APPROVAL_TRIGGERS)
+    triggers = _get_approval_triggers()
+    return set(contract.allowed_tools).intersection(triggers)
 
 
 def get_initial_status(contract: PromptContract) -> str:
