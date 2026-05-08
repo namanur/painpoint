@@ -213,13 +213,51 @@ def _build_plan_markdown(contracts: list) -> str:
 
 def _open_editor_for_input(prompt: str = "Enter your ideas below:") -> str | None:
     """
-    Open the system's default editor (vim, nano, code, etc.)
-    for frictionless text input.
+    Open the best available text editor for frictionless input.
+    Detects OS and common editors (nvim, nano, notepad, etc.).
 
     Returns:
         The edited content, or None if cancelled/empty.
     """
-    editor = os.environ.get("EDITOR", "nano")
+    # Priority 1: User defined $EDITOR
+    editor = os.environ.get("EDITOR")
+
+    # Priority 2: OS-specific defaults
+    if not editor:
+        if sys.platform == "win32":
+            # Windows: notepad is guaranteed
+            editor = "notepad"
+        elif sys.platform == "darwin":
+            # macOS: 'open -t' opens default text editor (usually TextEdit)
+            # but we prefer terminal editors if available
+            for e in ["nvim", "vim", "nano"]:
+                if (
+                    subprocess.call(
+                        ["which", e],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    == 0
+                ):
+                    editor = e
+                    break
+            if not editor:
+                editor = "open -t"
+        else:
+            # Linux/Unix: Try common ones in order of "power"
+            for e in ["nvim", "vim", "nano", "mousepad", "gedit"]:
+                if (
+                    subprocess.call(
+                        ["which", e],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    == 0
+                ):
+                    editor = e
+                    break
+            if not editor:
+                editor = "vi"  # POSIX standard fallback
 
     # Create marker comment for user guidance
     marker = "\n\n# --- DUMP YOUR MESSY IDEAS ABOVE THIS LINE ---\n"
@@ -232,11 +270,12 @@ def _open_editor_for_input(prompt: str = "Enter your ideas below:") -> str | Non
         with os.fdopen(fd, "w") as f:
             f.write(initial_content)
 
-        # Open editor and wait for user to save/close
-        result = subprocess.call([editor, filepath])
-
-        if result != 0:
-            console.print(f"[yellow]Editor exited with code {result}.[/yellow]")
+        # Handle editors that need 'open' or specific flags
+        if "open -t" in editor:
+            subprocess.call(["open", "-t", "-W", filepath])
+        else:
+            # For terminal editors, use shell=True if the string contains args
+            subprocess.call(f"{editor} {filepath}", shell=True)
 
         # Read the result
         with open(filepath, "r") as f:
