@@ -256,14 +256,15 @@ def _open_editor_for_input(prompt: str = "Enter your ideas below:") -> str | Non
 
 
 @click.command()
+@click.argument("prompt", required=False)
 @click.option("--session-dir", default="sessions", help="Directory for plan output")
 @click.option("--quiet", "-q", is_flag=True, help="Suppress verbose output")
-def intake(session_dir: str, quiet: bool):
+def intake(prompt: str | None, session_dir: str, quiet: bool):
     """
     Open the Glass Window intake terminal.
 
-    Opens a native text editor for brain dumping, then compiles
-    the messy ideas into a structured plan document.
+    Accepts an optional PROMPT argument for direct compilation.
+    If no prompt is provided, opens a native text editor for brain dumping.
     """
     console.print(
         Panel(
@@ -278,14 +279,20 @@ def intake(session_dir: str, quiet: bool):
         console.print("[bold red]Shutdown in progress. Try again later.[/bold red]")
         return
 
-    console.print("\n[bold]Opening editor for brain-dump...[/bold]")
-    console.print(
-        f"[dim]Using: {os.environ.get('EDITOR', 'nano')} "
-        f"(set $EDITOR to customize)[/dim]"
-    )
-
-    # Open editor for input
-    raw_dump = _open_editor_for_input("Describe your task or goal:")
+    raw_dump = None
+    if prompt:
+        raw_dump = prompt
+        console.print(
+            f"\n[bold green]Using provided prompt:[/bold green] [dim]{prompt}[/dim]"
+        )
+    else:
+        console.print("\n[bold]Opening editor for brain-dump...[/bold]")
+        console.print(
+            f"[dim]Using: {os.environ.get('EDITOR', 'nano')} "
+            f"(set $EDITOR to customize)[/dim]"
+        )
+        # Open editor for input
+        raw_dump = _open_editor_for_input("Describe your task or goal:")
 
     if raw_dump is None or not raw_dump.strip():
         console.print("[bold red]Intake cancelled. No data provided.[/bold red]")
