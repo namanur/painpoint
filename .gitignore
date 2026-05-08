@@ -4,15 +4,20 @@ __pycache__/
 *$py.class
 .pytest_cache/
 
+# Databases
+*.db
+*.db-journal
+*.sqlite3
+
+# Sessions/Plans
+sessions/
+
 # Environment/secrets
 .env
-src/config.py  # If this contains DB credentials/API keys; use a config.example.py instead!
-
-# Build/dist
-dist/
-build/
-*.egg-info/
+.venv/
+.python-version
 
 # IDE files
 .vscode/
 .idea/
+.zed/

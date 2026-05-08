@@ -24,19 +24,22 @@ echo "  │  One command. Done.                  │"
 echo "  └──────────────────────────────────────┘"
 echo -e "${NC}"
 
-# ── 0. Self-Cloning (if piped from curl) ──────────────────────────────────────
-INSTALL_DIR="$HOME/projects/painpoint"
-
-if [ ! -d "$INSTALL_DIR/.git" ]; then
-    step "[0/5] Downloading PainPoint"
-    mkdir -p "$HOME/projects"
-    git clone https://github.com/namanur/painpoint.git "$INSTALL_DIR"
-    cd "$INSTALL_DIR"
-    ok "Cloned to $INSTALL_DIR"
+# ── 0. Detection & Self-Cloning ──────────────────────────────────────────────
+# If we are already in a PainPoint repo, use the current dir
+if [ -d ".git" ] && grep -q "painpoint" .git/config 2>/dev/null; then
+    INSTALL_DIR="$(pwd)"
 else
-    # Already in the dir or it exists, just ensure we are there
-    cd "$INSTALL_DIR"
+    # Otherwise, install to ~/projects/painpoint (common for curl installs)
+    INSTALL_DIR="$HOME/projects/painpoint"
+    if [ ! -d "$INSTALL_DIR/.git" ]; then
+        step "[0/5] Downloading PainPoint"
+        mkdir -p "$HOME/projects"
+        git clone https://github.com/namanur/painpoint.git "$INSTALL_DIR"
+        ok "Cloned to $INSTALL_DIR"
+    fi
 fi
+
+cd "$INSTALL_DIR"
 
 # ── 1. Python version ────────────────────────────────────────────────────────
 step "[1/5] Checking Python"
