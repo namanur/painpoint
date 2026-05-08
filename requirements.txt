@@ -1,6 +1,7 @@
 # Core dependencies for Phase 1
 pydantic>=2.0.0
 asyncpg>=0.29.0
+aiosqlite>=0.20.0
 pydantic-settings>=2.0.0
 
 # CLI dependencies (Glass Window)
