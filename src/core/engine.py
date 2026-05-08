@@ -16,6 +16,8 @@ Engine code should work identically regardless of the backend.
 
 import asyncio
 import logging
+import signal
+import sys
 from typing import Optional
 
 from src.core.agent import execute_node
@@ -23,6 +25,25 @@ from src.db.schema import BaseNodeDAO, get_dao
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Shutdown flag for graceful exit
+_shutdown_requested = False
+
+
+def _handle_shutdown(signum, frame):
+    """Signal handler for SIGINT/SIGTERM."""
+    global _shutdown_requested
+    if _shutdown_requested:
+        logger.warning("Force exit requested. Severing tasks.")
+        sys.exit(1)
+
+    _shutdown_requested = True
+    logger.info("Shutdown requested. Completing current tasks...")
+
+
+# Register signal handlers
+signal.signal(signal.SIGINT, _handle_shutdown)
+signal.signal(signal.SIGTERM, _handle_shutdown)
 
 
 async def orchestration_loop(
@@ -39,6 +60,7 @@ async def orchestration_loop(
         poll_interval: Seconds to wait between polls when idle
         max_concurrent: Maximum number of concurrent execution tasks
     """
+    global _shutdown_requested
     dao = await get_dao()
 
     logger.info("Starting orchestration loop...")
@@ -50,7 +72,7 @@ async def orchestration_loop(
     running_tasks: set[asyncio.Task] = set()
 
     try:
-        while True:
+        while not _shutdown_requested:
             # Clean up completed tasks
             done_tasks = {task for task in running_tasks if task.done()}
             for task in done_tasks:
@@ -69,7 +91,7 @@ async def orchestration_loop(
                 continue
 
             # Fetch and lock a PENDING node using DAO abstraction
-            # The DAO uses the correct SQL for the backend (Postgres or SQLite)
+            # CRITICAL: No try/except here. Crash loudly if DB is down.
             record = await dao.fetch_pending_node()
 
             if record:
@@ -84,20 +106,19 @@ async def orchestration_loop(
                     )
                 )
                 running_tasks.add(task)
-
-                # Avoid blocking on task completion
-                # Let it run in background
             else:
                 # No pending nodes, throttle to save CPU
                 await asyncio.sleep(poll_interval)
 
-    except KeyboardInterrupt:
-        logger.info("Received shutdown signal...")
-        # Wait for running tasks to complete
+    finally:
         if running_tasks:
-            logger.info(f"Waiting for {len(running_tasks)} tasks to complete...")
+            logger.info(f"Awaiting {len(running_tasks)} in-flight tasks...")
             await asyncio.gather(*running_tasks, return_exceptions=True)
-        logger.info("Shutdown complete")
+
+        from src.db.schema import close_dao
+
+        await close_dao()
+        logger.info("Engine shutdown complete.")
 
 
 async def single_execution(node_id: str) -> None:

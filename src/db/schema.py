@@ -126,6 +126,11 @@ CREATE TABLE IF NOT EXISTS execution_logs (
     message TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- CRITICAL: Partial index for high-scale queue performance
+-- Prevents sequential scans as node table grows.
+CREATE INDEX IF NOT EXISTS idx_nodes_queue ON nodes(status, created_at)
+WHERE status = 'PENDING';
 """
 
 # =============================================================================
@@ -226,17 +231,13 @@ class PostgresNodeDAO(BaseNodeDAO):
 
     async def fetch_pending_node(self) -> Optional[Dict[str, Any]]:
         """Atomic pop using FOR UPDATE SKIP LOCKED."""
-        try:
-            async with self.pool.acquire() as conn:
-                record = await conn.fetchrow(
-                    self._sql["fetch_pending_node"],
-                    "RUNNING",  # New status
-                    "PENDING",  # Filter condition
-                )
-                return dict(record) if record else None
-        except Exception as e:
-            logger.error(f"PostgreSQL fetch_pending_node error: {e}")
-            return None
+        async with self.pool.acquire() as conn:
+            record = await conn.fetchrow(
+                self._sql["fetch_pending_node"],
+                "RUNNING",  # New status
+                "PENDING",  # Filter condition
+            )
+            return dict(record) if record else None
 
     async def get_node(self, node_id: str) -> Optional[Dict[str, Any]]:
         """Fetch a single node."""
@@ -273,6 +274,17 @@ class PostgresNodeDAO(BaseNodeDAO):
         """Update node output and status."""
         async with self.pool.acquire() as conn:
             await conn.execute(self._sql["update_node_output"], output, status, node_id)
+
+    async def fetchall(self, query: str, params: tuple = ()) -> List[Dict[str, Any]]:
+        """Generic fetchall for ad-hoc queries (PostgreSQL $1 placeholders)."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+            return [dict(row) for row in rows]
+
+    async def execute(self, query: str, params: tuple = ()) -> None:
+        """Generic execute for ad-hoc writes (PostgreSQL $1 placeholders)."""
+        async with self.pool.acquire() as conn:
+            await conn.execute(query, *params)
 
 
 # =============================================================================
@@ -342,22 +354,17 @@ class SqliteNodeDAO(BaseNodeDAO):
         SQLite 3.35+ supports RETURNING clause. This acts as an atomic pop
         without the PostgreSQL-specific FOR UPDATE SKIP LOCKED syntax.
         """
-        try:
-            cursor = await self._conn.execute(self._sql["fetch_pending_node"])
-            row = await cursor.fetchone()
+        cursor = await self._conn.execute(self._sql["fetch_pending_node"])
+        row = await cursor.fetchone()
 
-            if row:
-                # Convert sqlite3.Row to dict
-                return {
-                    "id": row["id"],
-                    "workflow_id": row["workflow_id"],
-                    "prompt_contract": row["prompt_contract"],
-                }
-            return None
-        except Exception as e:
-            logger.error(f"SQLite fetch_pending_node error: {e}")
-            await self._conn.rollback()
-            return None
+        if row:
+            # Convert sqlite3.Row to dict
+            return {
+                "id": row["id"],
+                "workflow_id": row["workflow_id"],
+                "prompt_contract": row["prompt_contract"],
+            }
+        return None
 
     async def get_node(self, node_id: str) -> Optional[Dict[str, Any]]:
         """Fetch a single node."""
@@ -465,99 +472,3 @@ async def close_dao() -> None:
     if _dao_instance:
         await _dao_instance.disconnect()
         _dao_instance = None
-
-
-# =============================================================================
-# Legacy Compatibility - Wrappers that maintain old API
-# =============================================================================
-# These allow existing code to continue working while using the new DAO
-
-
-class LegacyDatabaseWrapper:
-    """
-    Compatibility wrapper that presents the old Database API
-    while delegating to the new DAO underneath.
-
-    ANTI-SLOP: This wrapper exists only for backward compatibility during
-    the transition. New code should use get_dao() directly.
-    """
-
-    def __init__(self, dao: BaseNodeDAO):
-        self._dao = dao
-        self.is_sqlite = isinstance(dao, SqliteNodeDAO)
-
-    async def connect(self) -> None:
-        await self._dao.connect()
-        await self._dao.init_schema()
-
-    async def disconnect(self) -> None:
-        await self._dao.disconnect()
-
-    async def init_schema(self) -> None:
-        await self._dao.init_schema()
-
-    # Delegate specific methods
-    async def fetch_pending_node(self) -> Optional[Dict[str, Any]]:
-        return await self._dao.fetch_pending_node()
-
-    async def get_node(self, node_id: str) -> Optional[Dict[str, Any]]:
-        return await self._dao.get_node(node_id)
-
-    async def insert_node(
-        self,
-        node_id: str,
-        workflow_id: str,
-        node_type: str,
-        prompt_contract: str,
-        status: str = "PENDING",
-    ) -> str:
-        return await self._dao.insert_node(
-            node_id, workflow_id, node_type, prompt_contract, status
-        )
-
-    async def update_node_status(self, node_id: str, status: str) -> None:
-        await self._dao.update_node_status(node_id, status)
-
-    async def update_node_output(self, node_id: str, output: str, status: str) -> None:
-        await self._dao.update_node_output(node_id, output, status)
-
-
-# For legacy code that imports `db` from this module
-db = None  # Will be initialized by init_db()
-
-
-async def init_db() -> LegacyDatabaseWrapper:
-    """Initialize the legacy-compatible database wrapper."""
-    global db
-    dao = await get_dao()
-    db = LegacyDatabaseWrapper(dao)
-    return db
-
-
-# =============================================================================
-# Legacy Exports - For backward compatibility with existing code
-# =============================================================================
-
-
-async def create_pool(dsn: str) -> LegacyDatabaseWrapper:
-    """
-    Legacy wrapper for create_pool() calls.
-
-    For PostgreSQL, returns a wrapper that can be used as if it were an asyncpg Pool.
-    For SQLite, returns a wrapper that provides a similar interface.
-    """
-    dao = create_node_dao(dsn)
-    await dao.connect()
-    await dao.init_schema()
-    return LegacyDatabaseWrapper(dao)
-
-
-# Alias for pool getter (legacy API)
-async def get_pool():
-    """
-    Legacy alias - returns the DAO for code that expected a pool.
-
-    NOTE: The DAO has different methods than asyncpg Pool.
-    New code should use get_dao() directly.
-    """
-    return await get_dao()

@@ -32,8 +32,9 @@ async def pool():
         )
         
         # Initialize schema
-        from src.db.schema import init_db
-        await init_db(pool)
+        from src.db.schema import get_dao
+        dao = await get_dao()
+        await dao.init_schema()
         
         yield pool
         

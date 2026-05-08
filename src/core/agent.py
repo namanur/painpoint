@@ -10,13 +10,12 @@ string passed to the API.
 
 import json
 import logging
-from typing import Optional
-from asyncpg import Pool
+from typing import Any, Dict, Optional
 
 from src.models.prompt_contract import PromptContract
 from src.core.tools import get_tool_registry, execute_tool
 from src.core.llm_client import async_llm_call, get_llm_client
-from src.db import get_pool
+from src.db.schema import get_dao, BaseNodeDAO, SqliteNodeDAO
 from src.state.machine import NodeStatus
 
 logging.basicConfig(level=logging.INFO)
@@ -43,35 +42,36 @@ async def execute_node(
         contract_json: JSON string of the PromptContract
         workflow_id: UUID of the parent workflow
     """
-    pool = await get_pool()
-    
+    dao = await get_dao()
+
     try:
         # Stage 1: Hydrate contract
         contract = PromptContract.model_validate_json(contract_json)
         logger.info(f"Node {node_id}: Executing as role '{contract.role}'")
-        
+
         # Stage 2: Construct system prompt
         system_prompt = _build_system_prompt(contract)
-        
+
         # Stage 3: Execute with retries
         result = await _execute_with_retries(
             contract=contract,
             system_prompt=system_prompt,
             node_id=node_id,
+            dao=dao,
         )
-        
+
         # Stage 4: Process result
         await _process_execution_result(
-            pool=pool,
+            dao=dao,
             node_id=node_id,
             workflow_id=workflow_id,
             contract=contract,
             result=result,
         )
-        
+
     except Exception as e:
         logger.error(f"Node {node_id}: Unhandled error: {e}")
-        await _mark_failed(pool, node_id, str(e))
+        await _mark_failed(dao, node_id, str(e))
 
 
 def _build_system_prompt(contract: PromptContract) -> str:
@@ -105,6 +105,7 @@ async def _execute_with_retries(
     contract: PromptContract,
     system_prompt: str,
     node_id: str,
+    dao: BaseNodeDAO,
 ) -> dict:
     """
     Execute the LLM call with retry logic.
@@ -112,39 +113,38 @@ async def _execute_with_retries(
     Returns:
         Dictionary with execution result
     """
-    pool = await get_pool()
     retries = 0
-    
+
     while retries <= contract.max_retries:
         try:
             logger.info(f"Node {node_id}: Attempt {retries + 1}/{contract.max_retries + 1}")
-            
+
             # Log retry attempt
             if retries > 0:
-                await _log_execution(pool, node_id, f"Retry attempt {retries}")
-            
+                await _log_execution(dao, node_id, f"Retry attempt {retries}")
+
             # Execute LLM call with tools
             result = await _call_llm_with_tools(
                 system_prompt=system_prompt,
                 allowed_tools=contract.allowed_tools,
             )
-            
+
             logger.info(f"Node {node_id}: Execution successful")
             return result
-            
+
         except Exception as e:
             retries += 1
             logger.warning(f"Node {node_id}: Attempt failed: {e}")
-            
+
             if retries > contract.max_retries:
                 logger.error(f"Node {node_id}: Max retries exceeded")
                 raise Exception(f"Max retries ({contract.max_retries}) exceeded. Last error: {e}")
-            
+
             # Log retry
             await _log_execution(
-                pool, node_id, f"Attempt failed: {e}. Retrying..."
+                dao, node_id, f"Attempt failed: {e}. Retrying..."
             )
-    
+
     raise Exception("Unexpected exit from retry loop")
 
 
@@ -208,7 +208,7 @@ async def _call_llm_with_tools(
 
 
 async def _process_execution_result(
-    pool: Pool,
+    dao: BaseNodeDAO,
     node_id: str,
     workflow_id: str,
     contract: PromptContract,
@@ -216,7 +216,7 @@ async def _process_execution_result(
 ) -> None:
     """
     Process the LLM execution result and update state.
-    
+
     Handles:
     - Writing to execution_logs
     - Updating node status to SUCCESS
@@ -224,85 +224,73 @@ async def _process_execution_result(
     """
     # Log the execution
     await _log_execution(
-        pool, node_id, f"Execution successful: {json.dumps(result)}"
+        dao, node_id, f"Execution successful: {json.dumps(result)}"
     )
-    
-    # Mark node as SUCCESS
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            UPDATE nodes
-            SET status = $1, output = $2
-            WHERE id = $3
-        """, NodeStatus.SUCCESS.value, json.dumps(result), node_id)
-    
+
+    # Mark node as SUCCESS using DAO
+    await dao.update_node_output(node_id, json.dumps(result), NodeStatus.SUCCESS.value)
+
     logger.info(f"Node {node_id}: Marked as SUCCESS")
-    
+
     # Handle graph progression based on decision_rules
     decision = result.get("decision", "").lower()
-    
+
     if decision in contract.decision_rules:
         next_node_id = contract.decision_rules[decision]
-        await _trigger_next_node(pool, workflow_id, next_node_id)
+        await _trigger_next_node(dao, workflow_id, next_node_id)
     else:
         logger.info(f"Node {node_id}: No matching decision rule for '{decision}'")
 
 
 async def _trigger_next_node(
-    pool: Pool,
+    dao: BaseNodeDAO,
     workflow_id: str,
     next_node_id: str,
 ) -> None:
     """
     Trigger the next node in the workflow graph.
-    
-    Updates the next node from DRAFT to PENDING so it gets picked up
+
+    Updates the next node to PENDING so it gets picked up
     by the orchestration loop.
     """
-    async with pool.acquire() as conn:
-        # Verify the edge exists
-        edge = await conn.fetchrow("""
-            SELECT to_node_id FROM edges
-            WHERE workflow_id = $1 AND to_node_id = $2
-        """, workflow_id, next_node_id)
-        
-        if not edge:
-            logger.warning(f"No edge found to node {next_node_id}")
+    try:
+        # Get the current node to check its status
+        node = await dao.get_node(next_node_id)
+        if not node:
+            logger.warning(f"No node found: {next_node_id}")
             return
-        
-        # Update next node to PENDING
-        result = await conn.execute("""
-            UPDATE nodes
-            SET status = $1
-            WHERE id = $2 AND workflow_id = $3 AND status = $4
-        """, NodeStatus.PENDING.value, next_node_id, workflow_id, NodeStatus.DRAFT.value)
-        
-        if result == "UPDATE 1":
+
+        if node["status"] == NodeStatus.DRAFT.value:
+            await dao.update_node_status(next_node_id, NodeStatus.PENDING.value)
             logger.info(f"Triggered next node {next_node_id} to PENDING")
         else:
-            logger.warning(f"Next node {next_node_id} not in DRAFT status")
+            logger.warning(f"Next node {next_node_id} not in DRAFT status (current: {node['status']})")
+    except Exception as e:
+        logger.error(f"Failed to trigger next node {next_node_id}: {e}")
 
 
-async def _mark_failed(pool: Pool, node_id: str, error: str) -> None:
+async def _mark_failed(dao: BaseNodeDAO, node_id: str, error: str) -> None:
     """Mark a node as FAILED and log the error."""
-    await _log_execution(pool, node_id, f"FAILED: {error}")
-    
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            UPDATE nodes
-            SET status = $1
-            WHERE id = $2
-        """, NodeStatus.FAILED.value, node_id)
-    
+    await _log_execution(dao, node_id, f"FAILED: {error}")
+    await dao.update_node_status(node_id, NodeStatus.FAILED.value)
     logger.error(f"Node {node_id}: Marked as FAILED")
 
 
-async def _log_execution(pool: Pool, node_id: str, message: str) -> None:
+async def _log_execution(dao: BaseNodeDAO, node_id: str, message: str) -> None:
     """Append to the execution log (Level 5 auditing)."""
+    import uuid
+
     try:
-        async with pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO execution_logs (node_id, level, message)
-                VALUES ($1::UUID, $2, $3)
-            """, node_id, "INFO", message)
+        log_id = str(uuid.uuid4())
+        if isinstance(dao, SqliteNodeDAO):
+            await dao.execute(
+                "INSERT INTO execution_logs (id, node_id, level, message) VALUES (?, ?, ?, ?)",
+                (log_id, node_id, "INFO", message),
+            )
+        else:
+            await dao.execute(
+                "INSERT INTO execution_logs (id, node_id, level, message) VALUES ($1, $2, $3, $4)",
+                (log_id, node_id, "INFO", message),
+            )
     except Exception as e:
         logger.error(f"Failed to log execution: {e}")

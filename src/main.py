@@ -14,7 +14,7 @@ import asyncio
 import sys
 
 from src.config import settings
-from src.db.schema import create_pool, init_db
+from src.db.schema import get_dao, close_dao, SqliteNodeDAO
 
 
 async def setup_phase1():
@@ -24,13 +24,11 @@ async def setup_phase1():
     print("The Relational Core & State Manager")
     print("=" * 60)
 
-    # Create connection pool
+    # Initialize database via DAO
     print(f"\n[1/3] Connecting to database...")
     try:
-        from src.db.schema import db
-
-        await db.connect()
-        print(f"  ✓ Connected to: {db.dsn}")
+        dao = await get_dao()
+        print(f"  ✓ Connected to: {settings.database_url}")
     except Exception as e:
         print(f"  ✗ Failed to connect: {e}")
         return False
@@ -38,7 +36,7 @@ async def setup_phase1():
     # Initialize schema
     print(f"\n[2/3] Initializing database schema...")
     try:
-        await db.init_schema()
+        await dao.init_schema()
         print("  ✓ Schema created (workflows, nodes, edges, execution_logs)")
     except Exception as e:
         print(f"  ✗ Failed to initialize schema: {e}")
@@ -48,13 +46,18 @@ async def setup_phase1():
     print(f"\n[3/3] Verifying Phase 1 components...")
     tables = ["workflows", "nodes", "edges", "execution_logs"]
     for table in tables:
-        if db.is_sqlite:
-            query = "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=$1"
+        if isinstance(dao, SqliteNodeDAO):
+            rows = await dao.fetchall(
+                "SELECT count(*) as cnt FROM sqlite_master WHERE type='table' AND name=?",
+                (table,),
+            )
+            exists = rows[0]["cnt"] > 0 if rows else False
         else:
-            query = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)"
-
-        exists = await db.fetchval(query, table)
-        # SQLite returns count, PG returns boolean
+            rows = await dao.fetchall(
+                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name=$1) as bool",
+                (table,),
+            )
+            exists = rows[0]["bool"] if rows else False
         status = "✓" if exists else "✗"
         print(f"  {status} {table}")
 
@@ -72,7 +75,7 @@ async def setup_phase1():
     print("Phase 1 setup complete!")
     print(f"{'=' * 60}\n")
 
-    await db.disconnect()
+    await close_dao()
     return True
 
 
@@ -155,9 +158,7 @@ async def run_phase3():
         print("\nShutdown signal received.")
 
     # Close pool
-    from src.db import close_pool
-
-    await close_pool()
+    await close_dao()
 
 
 async def run_phase4_api():
