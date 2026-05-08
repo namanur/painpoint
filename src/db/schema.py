@@ -188,6 +188,30 @@ class BaseNodeDAO(ABC):
         """Update a node's output and status."""
         pass
 
+    @abstractmethod
+    async def fetchall(self, query: str, params: tuple = ()) -> List[Dict[str, Any]]:
+        """Generic fetchall for ad-hoc queries."""
+        pass
+
+    @abstractmethod
+    async def execute(self, query: str, params: tuple = ()) -> None:
+        """Generic execute for ad-hoc writes."""
+        pass
+
+    @abstractmethod
+    async def get_outgoing_edges(self, from_node_id: str) -> List[Dict[str, Any]]:
+        """
+        Fetch all outgoing edges from a node.
+
+        Returns a list of edge dicts containing:
+          - id: edge UUID
+          - to_node_id: target node UUID
+          - condition_rule: JSONPath condition string
+
+        Used by Code-Driven Control Flow for deterministic routing.
+        """
+        pass
+
 
 # =============================================================================
 # PostgreSQL Implementation
@@ -285,6 +309,21 @@ class PostgresNodeDAO(BaseNodeDAO):
         """Generic execute for ad-hoc writes (PostgreSQL $1 placeholders)."""
         async with self.pool.acquire() as conn:
             await conn.execute(query, *params)
+
+    async def get_outgoing_edges(self, from_node_id: str) -> List[Dict[str, Any]]:
+        """
+        Fetch outgoing edges for deterministic JSONPath routing.
+
+        Returns edges with condition_rule (JSONPath expressions) that
+        the engine evaluates against node output to determine routing.
+        """
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT id, from_node_id, to_node_id, condition_rule "
+                "FROM edges WHERE from_node_id = $1",
+                from_node_id,
+            )
+            return [dict(row) for row in rows]
 
 
 # =============================================================================
@@ -413,6 +452,21 @@ class SqliteNodeDAO(BaseNodeDAO):
         """Generic execute for ad-hoc writes."""
         await self._conn.execute(query, params)
         await self._conn.commit()
+
+    async def get_outgoing_edges(self, from_node_id: str) -> List[Dict[str, Any]]:
+        """
+        Fetch outgoing edges for deterministic JSONPath routing.
+
+        Returns edges with condition_rule (JSONPath expressions) that
+        the engine evaluates against node output to determine routing.
+        """
+        cursor = await self._conn.execute(
+            "SELECT id, from_node_id, to_node_id, condition_rule "
+            "FROM edges WHERE from_node_id = ?",
+            (from_node_id,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
 
 
 # =============================================================================
